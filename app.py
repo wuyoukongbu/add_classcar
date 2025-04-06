@@ -6,6 +6,11 @@ import requests
 import json
 import re
 import os
+import logging
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'chen1995')
@@ -32,6 +37,18 @@ class CookieConfig(db.Model):
     e2mf = db.Column(db.String(255), nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+# 初始化数据库和创建管理员账户
+with app.app_context():
+    db.create_all()
+    # 检查是否已存在管理员账户
+    admin = User.query.filter_by(username='admin').first()
+    if not admin:
+        # 创建管理员账户
+        admin = User(username='admin', password='admin', is_admin=True)
+        db.session.add(admin)
+        db.session.commit()
+        print("管理员账户创建成功！")
+
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
@@ -43,12 +60,22 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        user = User.query.filter_by(username=username).first()
-        if user and user.password == password:  # 实际应用中请使用密码哈希
-            login_user(user)
-            return redirect(url_for('admin' if user.is_admin else 'index'))
+        try:
+            username = request.form.get('username')
+            password = request.form.get('password')
+            
+            logger.info(f"尝试登录用户: {username}")
+            
+            user = User.query.filter_by(username=username).first()
+            if user and user.password == password:  # 实际应用中请使用密码哈希
+                login_user(user)
+                logger.info(f"用户 {username} 登录成功")
+                return redirect(url_for('admin' if user.is_admin else 'index'))
+            else:
+                logger.warning(f"用户 {username} 登录失败: 用户名或密码错误")
+        except Exception as e:
+            logger.error(f"登录过程中发生错误: {str(e)}")
+            return render_template('login.html', error="服务器错误，请稍后再试")
     return render_template('login.html')
 
 @app.route('/logout')
@@ -167,14 +194,4 @@ def import_curl():
     })
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        # 检查是否已存在管理员账户
-        admin = User.query.filter_by(username='admin').first()
-        if not admin:
-            # 创建管理员账户
-            admin = User(username='admin', password='your-password', is_admin=True)
-            db.session.add(admin)
-            db.session.commit()
-            print("管理员账户创建成功！")
     app.run(debug=True) 
