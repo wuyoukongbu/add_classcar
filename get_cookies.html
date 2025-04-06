@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>获取 e2mf Cookie</title>
+</head>
+<body>
+  <h1>获取 e2mf Cookie</h1>
+  <button onclick="getCookie()">点击获取</button>
+  <p id="result"></p>
+
+  <script>
+    function getCookie() {
+      const cookie = document.cookie
+        .split("; ")
+        .find(row => row.startsWith("e2mf="));
+      const value = cookie ? cookie.split("=")[1] : "没有找到 e2mf Cookie";
+      document.getElementById("result").innerText = "e2mf 值是: " + value;
+    }
+  </script>
+</body>
+</html>

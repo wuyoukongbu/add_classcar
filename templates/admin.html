@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="text-center mb-4">
+    <h2>管理后台</h2>
+    <p class="text-muted">更新系统配置</p>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">从CURL导入</h5>
+        <form id="importCurlForm" class="needs-validation" novalidate>
+            <div class="form-group mb-3">
+                <label for="curl_command" class="form-label">粘贴CURL命令</label>
+                <textarea class="form-control" id="curl_command" name="curl_command" rows="4" required></textarea>
+                <div class="invalid-feedback">请输入CURL命令</div>
+            </div>
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-primary">导入配置</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <h5 class="card-title">Cookie 配置</h5>
+        <form id="updateCookieForm" class="needs-validation" novalidate>
+            <div class="form-group mb-3">
+                <label for="e2mf" class="form-label">e2mf 值</label>
+                <input type="text" class="form-control" id="e2mf" name="e2mf" 
+                       value="{{ cookie_config.e2mf if cookie_config else '' }}" required>
+                <div class="invalid-feedback">请输入 e2mf 值</div>
+            </div>
+
+            {% if cookie_config %}
+            <div class="text-muted mb-3">
+                <small>最后更新时间：{{ cookie_config.updated_at.strftime('%Y-%m-%d %H:%M:%S') }}</small>
+            </div>
+            {% endif %}
+
+            <div class="d-grid gap-2">
+                <button type="submit" class="btn btn-primary">更新配置</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div id="result" class="mt-4" style="display: none;">
+    <div class="alert" role="alert"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    $('#importCurlForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        if (!this.checkValidity()) {
+            e.stopPropagation();
+            $(this).addClass('was-validated');
+            return;
+        }
+
+        const curlCommand = $('#curl_command').val();
+        
+        $.ajax({
+            url: '/import_curl',
+            method: 'POST',
+            data: { curl_command: curlCommand },
+            success: function(response) {
+                $('#e2mf').val(response.e2mf);
+                $('#result').show();
+                $('#result .alert')
+                    .removeClass('alert-danger')
+                    .addClass('alert-success')
+                    .text('导入成功');
+            },
+            error: function(xhr) {
+                $('#result').show();
+                $('#result .alert')
+                    .removeClass('alert-success')
+                    .addClass('alert-danger')
+                    .text(xhr.responseJSON.error || '导入失败');
+            }
+        });
+    });
+
+    $('#updateCookieForm').on('submit', function(e) {
+        e.preventDefault();
+        
+        if (!this.checkValidity()) {
+            e.stopPropagation();
+            $(this).addClass('was-validated');
+            return;
+        }
+
+        const formData = new FormData(this);
+        
+        $.ajax({
+            url: '/update_cookie',
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            success: function(response) {
+                $('#result').show();
+                $('#result .alert')
+                    .removeClass('alert-danger')
+                    .addClass('alert-success')
+                    .text('更新成功');
+            },
+            error: function(xhr) {
+                $('#result').show();
+                $('#result .alert')
+                    .removeClass('alert-success')
+                    .addClass('alert-danger')
+                    .text(xhr.responseJSON.error || '更新失败');
+            }
+        });
+    });
+});
+</script>
+{% endblock %} 
