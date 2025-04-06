@@ -155,12 +155,22 @@ def add_to_cart():
     
     try:
         response = requests.post(url, json=request_data, headers=headers)
-        return jsonify({
-            'status_code': response.status_code,
-            'response': response.text
-        })
+        response_data = response.json()
+        
+        if response_data.get('code') == 10000:
+            courses_count = len(goods_codes)
+            return jsonify({
+                'success': True,
+                'message': f'加购成功！已将{courses_count}科添加至购物车～'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'加购失败: {response_data.get("message", "未知错误")}',
+                'response': response_data
+            })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e), 'success': False}), 500
 
 @app.route('/import_curl', methods=['POST'])
 @login_required
