@@ -7,6 +7,8 @@ import json
 import re
 import os
 import logging
+import pandas as pd  # 添加pandas库用于处理Excel文件
+import io  # 添加io库用于处理上传的文件流
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -202,6 +204,116 @@ def import_curl():
     return jsonify({
         'e2mf': e2mf
     })
+
+@app.route('/batch_upload', methods=['POST'])
+def batch_upload():
+    try:
+        # 检查是否有上传的文件
+        if 'excel_file' not in request.files:
+            return jsonify({'success': False, 'message': '未找到上传的文件'}), 400
+        
+        file = request.files['excel_file']
+        if file.filename == '':
+            return jsonify({'success': False, 'message': '未选择文件'}), 400
+        
+        # 获取cookie配置
+        cookie_config = CookieConfig.query.first()
+        if not cookie_config:
+            return jsonify({'success': False, 'message': '系统未配置Cookie'}), 500
+        
+        # 读取Excel文件
+        try:
+            # header=None 确保不会将第一行作为标题，而是作为数据
+            df = pd.read_excel(io.BytesIO(file.read()), header=None)
+        except Exception as e:
+            return jsonify({'success': False, 'message': f'无法读取Excel文件: {str(e)}'}), 400
+        
+        # 验证Excel格式
+        if len(df.columns) < 2:
+            return jsonify({'success': False, 'message': 'Excel文件格式错误，至少需要两列：学员号和班号'}), 400
+        
+        # 重命名列以确保一致性 - 不再使用原始列名
+        df.columns = ['student_code', 'goods_code'] + [f'column_{i}' for i in range(2, len(df.columns))]
+        
+        # 清理数据
+        df = df.dropna(subset=['student_code', 'goods_code'])
+        
+        # 处理每一行
+        results = []
+        success_count = 0
+        error_count = 0
+        
+        for index, row in df.iterrows():
+            student_code = str(row['student_code']).strip()
+            goods_code = str(row['goods_code']).strip()
+            
+            # 构建请求
+            url = 'https://gateway.xdf.cn/web_reg_eapi/assistCart/assistAdd'
+            headers = {
+                'Host': 'gateway.xdf.cn',
+                'Content-Type': 'application/json',
+                'Origin': 'https://xubantool.xdf.cn',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cookie': f'U2AT=; accessToken=; appVersion=5.2.45; e2e=E9EA4CE45CFDC27561245F32249BAF1A; e2mf={cookie_config.e2mf}; email=chenzhanhong@xdf.cn; teacherCode=U0000289451; XDFUUID=489f5bb5-144d-805e-ea29-2865f2264bf0',
+                'Connection': 'keep-alive',
+                'Accept': 'application/json, text/plain, */*',
+                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 XdfWoXueApp/5.2.45 XdfWoXueRia/3.5 XdfWoXueFullScreen/false XdfWoXueTeacher/5.2.45 xdfBridge/3.5 xdfAppVer/5.2.45 xdfAppName/woxue xdfAppOther/teacher',
+                'Referer': f'https://xubantool.xdf.cn/purchaseStudent?appId=xdfTeacherApp&systemSource=xdfTeacher&schoolId=3&studentCode={student_code}',
+                'Accept-Language': 'zh-cn'
+            }
+            
+            request_data = {
+                "marketingSources": "",
+                "marketingSourcesExt": "",
+                "systemSource": "xdfTeacher",
+                "appId": "xdfTeacherApp",
+                "agentName": "",
+                "schoolId": "3",
+                "list": [{
+                    "goodsCode": goods_code,
+                    "goodsType": 1,
+                    "students": [{
+                        "studentCode": student_code,
+                        "userId": "xdf006889962"
+                    }]
+                }]
+            }
+            
+            try:
+                response = requests.post(url, json=request_data, headers=headers)
+                response_data = response.json()
+                
+                result = {
+                    'student_code': student_code,
+                    'goods_code': goods_code,
+                    'success': response_data.get('code') == 10000,
+                    'message': response_data.get('message', '成功') if response_data.get('code') == 10000 else response_data.get('message', '未知错误')
+                }
+                
+                if result['success']:
+                    success_count += 1
+                else:
+                    error_count += 1
+                
+                results.append(result)
+            except Exception as e:
+                results.append({
+                    'student_code': student_code,
+                    'goods_code': goods_code,
+                    'success': False,
+                    'message': f'请求异常: {str(e)}'
+                })
+                error_count += 1
+        
+        # 返回处理结果
+        return jsonify({
+            'success': True,
+            'message': f'批量处理完成，成功: {success_count}，失败: {error_count}',
+            'details': results
+        })
+        
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'处理Excel文件时出错: {str(e)}'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True) 
