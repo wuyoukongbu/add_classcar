@@ -118,7 +118,19 @@ def update_cookie():
 @app.route('/add_to_cart', methods=['POST'])
 def add_to_cart():
     student_code = request.form.get('student_code')
-    goods_codes = request.form.get('goods_codes').split('、')
+    goods_codes_input = request.form.get('goods_codes')
+    
+    # 拆分可能包含分隔符的商品代码
+    goods_codes = []
+    if '、' in goods_codes_input:
+        # 如果包含中文顿号，按顿号拆分
+        for code in goods_codes_input.split('、'):
+            goods_codes.append(code.strip())
+    else:
+        # 否则检查是否有其他常见分隔符
+        for code in re.split(r'[,，;；\s]+', goods_codes_input):
+            if code.strip():  # 确保不添加空字符串
+                goods_codes.append(code.strip())
     
     cookie_config = CookieConfig.query.first()
     if not cookie_config:
@@ -138,6 +150,7 @@ def add_to_cart():
         'Accept-Language': 'zh-cn'
     }
     
+    # 构建请求数据 - 一次请求包含所有班号
     request_data = {
         "marketingSources": "",
         "marketingSourcesExt": "",
@@ -149,29 +162,33 @@ def add_to_cart():
             "goodsCode": code,
             "goodsType": 1,
             "students": [{
-                "studentCode": student_code,
+                "studentCode": student_code.strip(),
                 "userId": "xdf006889962"
             }]
         } for code in goods_codes]
     }
     
     try:
+        logger.info(f"发送请求数据: {json.dumps(request_data, ensure_ascii=False)}")
         response = requests.post(url, json=request_data, headers=headers)
         response_data = response.json()
+        logger.info(f"收到响应数据: {json.dumps(response_data, ensure_ascii=False)}")
         
         if response_data.get('code') == 10000:
             courses_count = len(goods_codes)
             return jsonify({
                 'success': True,
-                'message': f'加购成功！已将{courses_count}科添加至购物车～'
+                'message': f'加购成功！已将{courses_count}科添加至购物车～',
+                'api_response': response_data
             })
         else:
             return jsonify({
                 'success': False,
                 'message': f'加购失败: {response_data.get("message", "未知错误")}',
-                'response': response_data
+                'api_response': response_data
             })
     except Exception as e:
+        logger.error(f"请求发生错误: {str(e)}")
         return jsonify({'error': str(e), 'success': False}), 500
 
 @app.route('/import_curl', methods=['POST'])
@@ -232,20 +249,58 @@ def batch_upload():
         if len(df.columns) < 2:
             return jsonify({'success': False, 'message': 'Excel文件格式错误，至少需要两列：学员号和班号'}), 400
         
-        # 重命名列以确保一致性 - 不再使用原始列名
+        # 重命名列以确保一致性
         df.columns = ['student_code', 'goods_code'] + [f'column_{i}' for i in range(2, len(df.columns))]
         
         # 清理数据
         df = df.dropna(subset=['student_code', 'goods_code'])
         
-        # 处理每一行
+        # 如果数据框为空，返回提示
+        if df.empty:
+            return jsonify({
+                'success': True,
+                'message': '批量处理完成，但Excel中没有有效数据行',
+                'details': []
+            })
+        
+        # 转换数据类型，确保学员号和班号是字符串
+        df['student_code'] = df['student_code'].astype(str)
+        df['goods_code'] = df['goods_code'].astype(str)
+        
+        # 按学员号分组处理数据
         results = []
         success_count = 0
         error_count = 0
         
-        for index, row in df.iterrows():
-            student_code = str(row['student_code']).strip()
-            goods_code = str(row['goods_code']).strip()
+        # 按学员号分组
+        grouped = df.groupby('student_code')
+        
+        for student_code, group in grouped:
+            # 跳过可能的'nan'值
+            if student_code.lower() == 'nan':
+                continue
+            
+            # 获取该学员的所有班号，并处理可能包含分隔符的班号
+            all_goods_codes = []
+            for code in group['goods_code'].tolist():
+                if str(code).lower() == 'nan':
+                    continue
+                
+                # 检查并拆分可能包含分隔符的班号
+                code_str = str(code).strip()
+                if '、' in code_str:
+                    split_codes = [c.strip() for c in code_str.split('、')]
+                    all_goods_codes.extend(split_codes)
+                else:
+                    # 检查其他常见分隔符
+                    split_codes = [c.strip() for c in re.split(r'[,，;；\s]+', code_str) if c.strip()]
+                    all_goods_codes.extend(split_codes)
+            
+            # 去重，避免重复提交
+            goods_codes = list(set(all_goods_codes))
+            
+            if not goods_codes:  # 如果没有有效的班号，跳过
+                continue
             
             # 构建请求
             url = 'https://gateway.xdf.cn/web_reg_eapi/assistCart/assistAdd'
@@ -262,6 +317,7 @@ def batch_upload():
                 'Accept-Language': 'zh-cn'
             }
             
+            # 构建请求数据 - 一次请求包含所有班号
             request_data = {
                 "marketingSources": "",
                 "marketingSourcesExt": "",
@@ -270,50 +326,66 @@ def batch_upload():
                 "agentName": "",
                 "schoolId": "3",
                 "list": [{
-                    "goodsCode": goods_code,
+                    "goodsCode": code,
                     "goodsType": 1,
                     "students": [{
-                        "studentCode": student_code,
+                        "studentCode": student_code.strip(),
                         "userId": "xdf006889962"
                     }]
-                }]
+                } for code in goods_codes]
             }
             
             try:
+                logger.info(f"发送请求数据: {json.dumps(request_data, ensure_ascii=False)}")
                 response = requests.post(url, json=request_data, headers=headers)
                 response_data = response.json()
+                logger.info(f"收到响应数据: {json.dumps(response_data, ensure_ascii=False)}")
                 
-                result = {
-                    'student_code': student_code,
-                    'goods_code': goods_code,
-                    'success': response_data.get('code') == 10000,
-                    'message': response_data.get('message', '成功') if response_data.get('code') == 10000 else response_data.get('message', '未知错误')
-                }
-                
-                if result['success']:
+                success = response_data.get('code') == 10000
+                if success:
                     success_count += 1
                 else:
                     error_count += 1
                 
-                results.append(result)
+                # 为每个班号添加一个结果
+                for goods_code in goods_codes:
+                    results.append({
+                        'student_code': student_code,
+                        'goods_code': goods_code,
+                        'success': success,
+                        'api_response': response_data
+                    })
+                
             except Exception as e:
-                results.append({
-                    'student_code': student_code,
-                    'goods_code': goods_code,
-                    'success': False,
-                    'message': f'请求异常: {str(e)}'
-                })
                 error_count += 1
+                error_message = str(e)
+                logger.error(f"请求发生错误: {error_message}")
+                # 为每个班号添加一个错误结果
+                for goods_code in goods_codes:
+                    results.append({
+                        'student_code': student_code,
+                        'goods_code': goods_code,
+                        'success': False,
+                        'error': error_message
+                    })
         
         # 返回处理结果
         return jsonify({
             'success': True,
             'message': f'批量处理完成，成功: {success_count}，失败: {error_count}',
-            'details': results
+            'details': results,
+            'debug_info': {
+                'total_students': len(grouped),
+                'total_records': len(df),
+                'success_count': success_count,
+                'error_count': error_count,
+                'timestamp': datetime.now().isoformat()
+            }
         })
         
     except Exception as e:
+        logger.error(f"批量处理Excel文件时出错: {str(e)}")
         return jsonify({'success': False, 'message': f'处理Excel文件时出错: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True) 
+    app.run(debug=True)

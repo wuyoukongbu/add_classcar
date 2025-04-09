@@ -240,9 +240,39 @@ $(document).ready(function() {
                                 </div>
                             </div>
                         `;
+                    } else {
+                        // 没有详情数据
+                        detailsTable = `
+                            <div class="alert alert-warning mt-3">
+                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                没有找到可处理的数据。请检查您的Excel文件格式是否正确：
+                                <ul class="mb-0 mt-2">
+                                    <li>确保第一列是学员号，第二列是班号</li>
+                                    <li>确保Excel文件中至少有一行有效数据</li>
+                                    <li>学员号和班号不能为空</li>
+                                </ul>
+                            </div>
+                        `;
                     }
                     
-                    // 成功消息
+                    // 添加调试信息区域
+                    const debugInfo = `
+                        <div class="card mt-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">调试信息</h6>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#debugInfo">
+                                    显示/隐藏
+                                </button>
+                            </div>
+                            <div class="collapse" id="debugInfo">
+                                <div class="card-body">
+                                    <pre class="mb-0"><code>${JSON.stringify(response, null, 2)}</code></pre>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    // 显示结果
                     $('#result').html(`
                         <div class="alert alert-success alert-dismissible fade show" role="alert">
                             <i class="bi bi-check-circle-fill me-2"></i>
@@ -250,6 +280,7 @@ $(document).ready(function() {
                             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
                         </div>
                         ${detailsTable}
+                        ${debugInfo}
                     `);
                 } else {
                     // 失败消息
@@ -258,6 +289,19 @@ $(document).ready(function() {
                             <i class="bi bi-exclamation-triangle-fill me-2"></i>
                             <strong>操作失败!</strong> ${response.message || '未知错误'}
                             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                        <div class="card mt-3">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">调试信息</h6>
+                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#debugInfo">
+                                    显示/隐藏
+                                </button>
+                            </div>
+                            <div class="collapse" id="debugInfo">
+                                <div class="card-body">
+                                    <pre class="mb-0"><code>${JSON.stringify(response, null, 2)}</code></pre>
+                                </div>
+                            </div>
                         </div>
                     `);
                 }
